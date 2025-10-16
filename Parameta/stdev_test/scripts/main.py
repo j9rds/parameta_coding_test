@@ -43,23 +43,29 @@ class StdevProcessor:
             f"Computing rolling standard deviation with window size {window}..."
         )
         self.fill_missing_timestamps()
-        df = self.df.copy()
+
+        # Define the price columns to calculate std for
+        price_cols = ["bid", "mid", "ask"]
+        new_cols = [f"{col}_std" for col in price_cols]
         rolled = (
-            df.groupby("security_id", group_keys=False)
+            self.df.groupby("security_id", group_keys=False)
             .rolling(window=window, min_periods=20, on="snap_time")
             .std(ddof=1)
             .reset_index()
         )
-        self.result_df = rolled[
-            ["security_id", "snap_time", "bid", "mid", "ask"]
-        ].reset_index()
+
+        # Forward fill to get the most recent set of 20 contiguous hourly snap values on rows with breaks in snap time
+        filled = rolled.groupby("security_id").ffill()
+
+        self.result_df = self.df.copy()
+        self.result_df[new_cols] = filled[price_cols]
 
     def save_output(self):
         """Saves the resulting DataFrame to a CSV file."""
         self.logger.info("Saving output")
         output_path = self.out_path
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        self.result_df.to_csv(output_path)
+        self.result_df.to_csv(output_path, index=False)
 
 
 if __name__ == "__main__":
