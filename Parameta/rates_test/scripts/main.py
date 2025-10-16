@@ -55,6 +55,19 @@ class RatesProcessor:
     def compute_new_prices(self):
         """Calculates the final price based on spot rates and currency conversion rules."""
         self.logger.info("Computing new prices")
+
+        def fill_missing(df, target, others):
+            mt = df[target].isna()
+
+            def msg(row):
+                missing_cols = [c for c in others if pd.isna(row[c])]
+                if not missing_cols:
+                    return row[target]
+                return "missing " + ", ".join(missing_cols)
+
+            df.loc[mt, target] = df.loc[mt].apply(msg, axis=1)
+            return df
+
         # Get recent spot rate
         merged = self._get_recent_spot_rate()
 
@@ -62,13 +75,21 @@ class RatesProcessor:
         merged = merged.merge(self.ccy_df, on="ccy_pair", how="left")
 
         # Set the value of the conversion_factor to 1 if convert_price is False
-        merged.loc[merged["convert_price"] == False, "conversion_factor"] = 1
+        mask = merged["convert_price"] == False
+
+        merged.loc[mask, ["conversion_factor", "spot_mid_rate"]] = 1
 
         # Final price formula
         merged["final_price"] = (merged["price"] / merged["conversion_factor"]) + (
             merged["convert_price"] * merged["spot_mid_rate"]
         )
-        merged["final_price"] = merged["final_price"].fillna("insufficient data")
+
+        # Add message depending on the missing column
+        merged = fill_missing(
+            merged,
+            "final_price",
+            ["convert_price", "conversion_factor", "spot_mid_rate"],
+        )
 
         self.result_df = merged.copy()
 
